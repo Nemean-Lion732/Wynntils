@@ -48,17 +48,22 @@ public class QuickCastManager {
     private static final Pattern COMBAT_LVL_REQ_OK_PATTERN = Pattern.compile("§a✔§7 Combat Lv. Min:.+");
     private static final Pattern SPELL_POINT_MIN_NOT_REACHED_PATTERN = Pattern.compile("§c✖§7 (.+) Min: (\\d+)");
 
-    public static final boolean[] NO_SPELL = new boolean[0];
+    private static final boolean[] NO_SPELL = new boolean[0];
 
-    //Fixes most bugs when user spams quickcast hotkeys, by not allowing them to start spell casting until the current one is finished
-    public static boolean[] spellInProgress = NO_SPELL;
+    // Queue spells that the user is casting in the order they are pressed preventing overlap
+    public static ArrayList<Integer> spellsInProgress = new ArrayList<Integer>();
 
-    private static void queueSpell(int spellNumber, boolean a, boolean b, boolean c) {
-        boolean[] spell = new boolean[]{a, b, c};
-        boolean[] maybeHalfSpell = canCastSpell(spellNumber, spell);
-        if (maybeHalfSpell.length == 0) return;
+    private static void castQueuedSpell() {
+        if (spellsInProgress.size() == 0) return;
 
-        spellInProgress = spell;
+        boolean[] fullSpell = getMouseClicks(spellsInProgress.get(0));
+        boolean[] maybeHalfSpell = canCastSpell(spellsInProgress.get(0), fullSpell);
+
+        if (maybeHalfSpell.length == 0) { // Ignore casting this spell if canCastSpells returns empty
+            spellsInProgress.remove(0);
+            castQueuedSpell();
+            return;
+        }
 
         int level = PlayerInfo.get(CharacterData.class).getLevel();
         boolean isLowLevel = level <= 11;
@@ -66,44 +71,76 @@ public class QuickCastManager {
         int offset = 3 - maybeHalfSpell.length;
         for (int i = 0; i < maybeHalfSpell.length; i++) {
             final int finalI = i;
-            PacketQueue.queueComplexPacket(maybeHalfSpell[i] == SPELL_LEFT ? leftClick : rightClick, packetClass, e -> checkKey(e, finalI + offset, maybeHalfSpell[finalI], isLowLevel));
+            PacketQueue.queueComplexPacket(maybeHalfSpell[i] == SPELL_LEFT ? leftClick : rightClick, 
+                packetClass, e -> checkKey(e, finalI + offset, maybeHalfSpell[finalI], isLowLevel)).onDrop(() -> onSpellClickDrop(finalI + offset));
+            Reference.LOGGER.info("Queued Packet");
         }
+    }
+
+    private static boolean[] getMouseClicks(int spellNumber) {
+        if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
+            switch (spellNumber) {
+                case 1:
+                    return new boolean[]{SPELL_LEFT, SPELL_RIGHT, SPELL_LEFT};
+            
+                case 2:
+                    return new boolean[]{SPELL_LEFT, SPELL_LEFT, SPELL_LEFT};
+                    
+                case 3:
+                    return new boolean[]{SPELL_LEFT, SPELL_RIGHT, SPELL_RIGHT};
+
+                case 4:
+                    return new boolean[]{SPELL_LEFT, SPELL_LEFT, SPELL_RIGHT};
+
+                default:
+                    Reference.LOGGER.info("Wynntils Quick Cast Manager Spell Number Exceeded Bounds");
+                    break;
+            }
+        } else {
+            switch (spellNumber) {
+                case 1:
+                    return new boolean[]{SPELL_RIGHT, SPELL_LEFT, SPELL_RIGHT};
+            
+                case 2:
+                    return new boolean[]{SPELL_RIGHT, SPELL_RIGHT, SPELL_RIGHT};
+                    
+                case 3:
+                    return new boolean[]{SPELL_RIGHT, SPELL_LEFT, SPELL_LEFT};
+
+                case 4:
+                    return new boolean[]{SPELL_RIGHT, SPELL_RIGHT, SPELL_LEFT};
+
+                default:
+                    Reference.LOGGER.info("Wynntils Quick Cast Manager Spell Number Exceeded Bounds");
+                    break;
+            }
+        }
+        
+        return new boolean[]{};
     }
 
     public static void castFirstSpell() {
-        if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
-            queueSpell(1, SPELL_LEFT, SPELL_RIGHT, SPELL_LEFT);
-            return;
-        }
-
-        queueSpell(1, SPELL_RIGHT, SPELL_LEFT, SPELL_RIGHT);
+        spellsInProgress.add(1);
+        // Only begin casting if there is not a spell in progress
+        if (spellsInProgress.size() == 1) castQueuedSpell();
     }
 
     public static void castSecondSpell() {
-        if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
-            queueSpell(2, SPELL_LEFT, SPELL_LEFT, SPELL_LEFT);
-            return;
-        }
-
-        queueSpell(2, SPELL_RIGHT, SPELL_RIGHT, SPELL_RIGHT);
+        spellsInProgress.add(2);
+        // Only begin casting if there is not a spell in progress
+        if (spellsInProgress.size() == 1) castQueuedSpell();
     }
 
     public static void castThirdSpell() {
-        if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
-            queueSpell(3, SPELL_LEFT, SPELL_RIGHT, SPELL_RIGHT);
-            return;
-        }
-
-        queueSpell(3, SPELL_RIGHT, SPELL_LEFT, SPELL_LEFT);
+        spellsInProgress.add(3);
+        // Only begin casting if there is not a spell in progress
+        if (spellsInProgress.size() == 1) castQueuedSpell();
     }
 
     public static void castFourthSpell() {
-        if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
-            queueSpell(4, SPELL_LEFT, SPELL_LEFT, SPELL_RIGHT);
-            return;
-        }
-
-        queueSpell(4, SPELL_RIGHT, SPELL_RIGHT, SPELL_LEFT);
+        spellsInProgress.add(4);
+        // Only begin casting if there is not a spell in progress
+        if (spellsInProgress.size() == 1) castQueuedSpell();
     }
 
     private static boolean[] canCastSpell(int spell, boolean[] checkedSpell) {
@@ -114,14 +151,14 @@ public class QuickCastManager {
         if (PlayerInfo.get(CharacterData.class).getLevel() < spellUnlock[spell - 1]) {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "You have not yet unlocked this spell! You need to be level " + spellUnlock[spell - 1]
-            ));
+                    ));
             return NO_SPELL;
         }
 
         if (PlayerInfo.get(CharacterData.class).getCurrentMana() == 0) {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "You do not have enough mana to cast this spell!"
-            ));
+                    ));
             return NO_SPELL;
         }
 
@@ -142,7 +179,7 @@ public class QuickCastManager {
         {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "The held item is not a weapon."
-            ));
+                    ));
             return NO_SPELL;
         }
 
@@ -159,7 +196,7 @@ public class QuickCastManager {
         {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "The held weapon is not for this class."
-            ));
+                    ));
             return NO_SPELL;
         }
 
@@ -175,7 +212,7 @@ public class QuickCastManager {
         {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "The current class level is too low to use the held weapon."
-            ));
+                    ));
             return NO_SPELL;
         }
 
@@ -191,34 +228,26 @@ public class QuickCastManager {
         if (notReachedSpellPointRequirements != null) {
             McIf.player().sendMessage(new TextComponentString(
                     TextFormatting.GRAY + "The current class does not have enough " + notReachedSpellPointRequirements + " assigned to use the held weapon."
-            ));
+                    ));
             return NO_SPELL;
         }
 
-        //If there is spell casting in progress, don't interfere
+        //If there is a partial spell, try to complete the spell
         boolean[] lastSpell = PlayerInfo.get(SpellData.class).getLastSpell();
         int lastSpellLength = lastSpell.length;
-        if ((lastSpellLength != 0 && lastSpellLength != 3) || spellInProgress.length != 0)
-        {
-            if (lastSpellLength != 0 && lastSpellLength != 3 && spellInProgress.length == 0) {
-                for (int i1 = 0; i1 < lastSpellLength; i1++) {
-                    if (lastSpell[i1] != checkedSpell[i1]) {
-                        McIf.player().sendMessage(new TextComponentString(
-                                TextFormatting.GRAY + "Cannot start casting a spell while another spell cast is in progress."
-                        ));
-                        return NO_SPELL;
-                    }
+        if (lastSpellLength != 0 && lastSpellLength != 3) {
+            for (int i1 = 0; i1 < lastSpellLength; i1++) {
+                if (lastSpell[i1] != checkedSpell[i1]) {
+                    McIf.player().sendMessage(new TextComponentString(
+                            TextFormatting.GRAY + "Cannot start casting a spell while another spell cast is in progress."
+                            ));
+                    return NO_SPELL;
                 }
-
-                boolean[] halfSpell = new boolean[checkedSpell.length - lastSpellLength];
-                System.arraycopy(checkedSpell, lastSpellLength, halfSpell, 0, halfSpell.length);
-                return halfSpell;
             }
 
-            McIf.player().sendMessage(new TextComponentString(
-                    TextFormatting.GRAY + "Cannot start casting a spell while another spell cast is in progress."
-            ));
-            return NO_SPELL;
+            boolean[] halfSpell = new boolean[checkedSpell.length - lastSpellLength];
+            System.arraycopy(checkedSpell, lastSpellLength, halfSpell, 0, halfSpell.length);
+            return halfSpell;
         }
 
         return checkedSpell;
@@ -244,19 +273,22 @@ public class QuickCastManager {
 
         boolean successful = pos < spell.length && spell[pos] == clickType;
 
-        //If we sent the last part of the spell, reset the boolean, allowing the keybind to cast spells again
-        /*
-        Bolyai:
-        This might not be 100% safe without checking if successful is true,
-        as user interference during spell casting happens and we need to reset spellInProgress or it will get stuck,
-        this case it should be fine, as there are other checks to make sure we don't spam spells.
-
-        If spell casting is still very spammy, the if statement below should be changed to: if ((successful && pos == 2) || isThisLastResend)
-        isThisLastResend should be true if PacketResponse's tries >= maxTries (or by simply counting retries and assuming maxTries was not changed).
-        */
-        if (pos == 2) {
-            spellInProgress = NO_SPELL;
+        // If the final click was successful, we should cast the next spell
+        // NOTE: We do not need to consider failure, this is handled by onSpellClickDrop
+        if (spellsInProgress.size() > 0 && pos == 2 && successful) {
+            spellsInProgress.remove(0);
+            
+            castQueuedSpell();
         }
+
         return successful;
+    }
+
+    private static void onSpellClickDrop(int pos) {
+        if (pos == 2 && spellsInProgress.size() > 0) {
+            // If the final click in a spell was never acknowledged, assume that it was received and continue casting
+            spellsInProgress.remove(0);
+            castQueuedSpell();
+        }
     }
 }
