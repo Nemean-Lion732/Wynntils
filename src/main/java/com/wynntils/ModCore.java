@@ -13,6 +13,7 @@ import com.wynntils.core.framework.rendering.textures.Textures;
 import com.wynntils.modules.ModuleRegistry;
 import com.wynntils.modules.core.config.CoreDBConfig;
 import com.wynntils.modules.core.enums.UpdateStream;
+import com.wynntils.modules.core.managers.SSLCertificateManager;
 import com.wynntils.modules.core.overlays.ui.ForgeConflictScreen;
 import com.wynntils.modules.core.overlays.ui.ModConflictScreen;
 import com.wynntils.modules.map.MapModule;
@@ -45,6 +46,8 @@ public class ModCore {
     public void preInit(FMLPreInitializationEvent e) {
         if (ForgeVersion.getBuildVersion() < 2856) throw new ForgeConflictScreen();
 
+        SSLCertificateManager.registerCerts();
+
         Reference.VERSION = e.getModMetadata().version;
         String[] splitDescription = e.getModMetadata().description.split(" ");
         try {
@@ -61,7 +64,7 @@ public class ModCore {
         if (Reference.developmentEnvironment)
             Reference.LOGGER.info("Development environment detected, automatic update detection disabled");
 
-        WebManager.FixSSL.registerCerts();
+        Reference.LOGGER.info("Wynntils loaded " + Reference.VERSION + " (Build " + Reference.BUILD_NUMBER + ")"); // Print version
 
         WebManager.setupUserAccount();
         WebManager.setupWebApi(true);

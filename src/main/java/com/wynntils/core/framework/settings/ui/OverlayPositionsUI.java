@@ -157,6 +157,9 @@ public class OverlayPositionsUI extends UI {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws IOException {
+        if (mouseButton > 3) {
+            mouseButton = 3; // Set to UNKNOWN
+        }
         super.mouseClicked(mouseX, mouseY, mouseButton);
         if (toClick != null) {
             clickTime = System.currentTimeMillis();
@@ -169,6 +172,9 @@ public class OverlayPositionsUI extends UI {
 
     @Override
     protected void mouseReleased(int mouseX, int mouseY, int state) {
+        if (state > 3) {
+            state = 3; // Set to UNKNOWN
+        }
         super.mouseReleased(mouseX, mouseY, state);
         for (OverlayButton button : registeredOverlaySettings) {
             if (button.isMouseButtonHeld()) {
@@ -183,6 +189,9 @@ public class OverlayPositionsUI extends UI {
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
+        if (clickedMouseButton > 3) {
+            clickedMouseButton = 3; // Set to UNKNOWN
+        }
         super.mouseClickMove(mouseX, mouseY, clickedMouseButton, timeSinceLastClick);
         for (OverlayButton button : registeredOverlaySettings) {
             if (button.isMouseButtonHeld()) {
