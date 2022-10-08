@@ -43,7 +43,7 @@ public class QuickCastManager {
 
     private static final int[] spellUnlock = { 1, 11, 21, 31 };
 
-    private static final Pattern WEAPON_SPEED_PATTERN = Pattern.compile("§7.+ Attack Speed");
+    // private static final Pattern WEAPON_SPEED_PATTERN = Pattern.compile("§7(.+) Attack Speed");
     private static final Pattern CLASS_REQ_OK_PATTERN = Pattern.compile("§a✔§7 Class Req:.+");
     private static final Pattern COMBAT_LVL_REQ_OK_PATTERN = Pattern.compile("§a✔§7 Combat Lv. Min:.+");
     private static final Pattern SPELL_POINT_MIN_NOT_REACHED_PATTERN = Pattern.compile("§c✖§7 (.+) Min: (\\d+)");
@@ -52,7 +52,13 @@ public class QuickCastManager {
 
     // Queue spells that the user is casting in the order they are pressed preventing overlap
     public static ArrayList<Integer> spellsInProgress = new ArrayList<Integer>();
+    public static boolean meleeAttackInProgress = false;
 
+    private static long lastMeleeAttackMillis = 0;
+
+    /**
+     * This method casts the first spell in spellsInProgress
+     */
     private static void castQueuedSpell() {
         if (spellsInProgress.size() == 0) return;
 
@@ -72,11 +78,14 @@ public class QuickCastManager {
         for (int i = 0; i < maybeHalfSpell.length; i++) {
             final int finalI = i;
             PacketQueue.queueComplexPacket(maybeHalfSpell[i] == SPELL_LEFT ? leftClick : rightClick, 
-                packetClass, e -> checkKey(e, finalI + offset, maybeHalfSpell[finalI], isLowLevel)).onDrop(() -> onSpellClickDrop(finalI + offset));
-            Reference.LOGGER.info("Queued Packet");
+                packetClass, e -> checkSpellClick(e, finalI + offset, maybeHalfSpell[finalI], isLowLevel)
+            ).onDrop(() -> onSpellClickDrop(finalI + offset));
         }
     }
-
+    /**
+     * This method takes a spell number and returns the relevent inputs for the spell
+     * @return boolean array (left for False, right for True), empty for error
+     */
     private static boolean[] getMouseClicks(int spellNumber) {
         if (PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER) {
             switch (spellNumber) {
@@ -253,7 +262,11 @@ public class QuickCastManager {
         return checkedSpell;
     }
 
-    private static boolean checkKey(Packet<?> input, int pos, boolean clickType, boolean isLowLevel) {
+    /**
+     * This method checks that the packets we recieve from the server are valid
+     * @return boolean true if the response is valid, false if it was not
+     */
+    private static boolean checkSpellClick(Packet<?> input, int pos, boolean clickType, boolean isLowLevel) {
         boolean[] spell;
 
         SpellData data = PlayerInfo.get(SpellData.class);
@@ -270,8 +283,9 @@ public class QuickCastManager {
 
             spell = data.getLastSpell();
         }
-
-        boolean successful = pos < spell.length && spell[pos] == clickType;
+        // Sometimes we do not get the final click of the spell above the hotbar as after casting it shows coordinates
+        // if this happens spell.length == 0 for the last input, if the input wasnt recieved spell.length == 2
+        boolean successful = (pos < spell.length && spell[pos] == clickType) || (spell.length == 0 && pos == 2);
 
         // If the final click was successful, we should cast the next spell
         // NOTE: We do not need to consider failure, this is handled by onSpellClickDrop
@@ -284,11 +298,53 @@ public class QuickCastManager {
         return successful;
     }
 
+    /**
+     * This method is called when the PacketQueue drops our spell click to avoid spamming
+     */
     private static void onSpellClickDrop(int pos) {
         if (pos == 2 && spellsInProgress.size() > 0) {
             // If the final click in a spell was never acknowledged, assume that it was received and continue casting
             spellsInProgress.remove(0);
             castQueuedSpell();
         }
+    }
+
+    /**
+     * Queues the player to make a melee attack if they are able to
+     */
+    public static void doMeleeAttack() {
+        if (!Reference.onWorld || !PlayerInfo.get(CharacterData.class).isLoaded()) return;
+
+        // Note: I used 2 timers for this function, reasons stated below
+        // The CooldownTracker gets the minecraft cooldown seen in the hotbar, but there is a 1-2 tick delay where after attacking the cooldown is still 0
+        // Using only this timer, multiple attack packets are sent immediately after recieving attacking
+        // lastMeleeAttackMillis is used to complement this by waiting ~150 ms (same as Super Fast Attack Speed) so the CooldownTracker has time to update
+        // This is the only way Ive found to get the player attack speed after modifiers such as gear calculations
+        //
+        // This could be improved by finding a better way to get the players true attack speed (heldItem fields, and attack strength do not work from my testing)
+        if (lastMeleeAttackMillis + 150 > System.currentTimeMillis()) return;
+        ItemStack heldItem = McIf.player().getHeldItemMainhand();
+        if (!ItemUtils.isWeapon(heldItem)) return;
+
+        if((McIf.player().getCooldownTracker().getCooldown(heldItem.getItem(), 0) > 0) || meleeAttackInProgress) return;
+
+        Class<?> packetClass = PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER ? CPacketPlayerTryUseItem.class : CPacketAnimation.class;
+        
+        // We set the attack timer to reset both if the response is recieved or it is dropped
+        PacketQueue.queueComplexPacket(PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER ? rightClick : leftClick,
+            packetClass, e -> updateMeleeTimer()
+        ).onDrop(() -> updateMeleeTimer());
+
+        meleeAttackInProgress = true;
+    }
+
+    /**
+     * Updates the Quickcast Attack Timer Variables when a packet is recieved
+     */
+    private static boolean updateMeleeTimer() {
+        meleeAttackInProgress = false;
+        lastMeleeAttackMillis = System.currentTimeMillis();
+
+        return true;
     }
 }

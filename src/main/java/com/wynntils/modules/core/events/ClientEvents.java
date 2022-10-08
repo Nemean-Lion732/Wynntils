@@ -560,5 +560,6 @@ public class ClientEvents implements Listener {
 
         spellData.setLastSpell(SpellData.NO_SPELL, -1);
         QuickCastManager.spellsInProgress.clear();
+        QuickCastManager.meleeAttackInProgress = false;
     }
 }
