@@ -54,6 +54,7 @@ public class QuickCastManager implements Listener {
 
     private static final Queue<Packet<?>> spellPacketQueue = new LinkedList<>();
     private static List<Boolean> spellInProgress = new ArrayList<>(3);
+    private static List<Boolean> delayedSpells = new ArrayList<>();
     private static int lastSelectedSlot = 0;
     private static int spellResetCountdown = 0;
     private static int packetQueueCountdown = 0;
@@ -63,35 +64,40 @@ public class QuickCastManager implements Listener {
      * true in boolean fields represents right click.
      */
     private static void queueSpell(boolean first, boolean second, boolean third) {
-        if (!spellPacketQueue.isEmpty()) {
-            McIf.player().sendMessage(new TextComponentString(
-                    TextFormatting.GRAY + "Cannot cast a spell while another spell cast is in progress."
-            ));
-            return;
-        }
-
         NetHandlerPlayClient connection = McIf.mc().getConnection();
         if (connection == null) return;
 
         boolean isArcher = PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER;
 
-        List<Boolean> spell = new ArrayList<>(3);
-        spell.add(isArcher != first); // Inverts booleans (r -> l, l -> r) if archer
-        spell.add(isArcher != second);
-        spell.add(isArcher != third);
+        delayedSpells.add(isArcher != first); // Inverts booleans (r -> l, l -> r) if archer
+        delayedSpells.add(isArcher != second);
+        delayedSpells.add(isArcher != third);
+
+        if (delayedSpells.size() > 3 || !spellInProgress.isEmpty()) return;
+
+        checkDelayedSpells();
+    }
+
+    private static void checkDelayedSpells() {
+        if (delayedSpells.isEmpty()) return;
+
+        lastSelectedSlot = McIf.player().inventory.currentItem;
+        List<Boolean> spell = delayedSpells.subList(0, 3);
+
 
         for (int i = 0; i < spellInProgress.size(); i++) {
             if (spellInProgress.get(i) != spell.get(i)) {
                 McIf.player().sendMessage(new TextComponentString(
                         TextFormatting.GRAY + "Finish your incompatible spell-cast first."
                 ));
+                delayedSpells.subList(0, 3).clear();
                 return;
             }
         }
 
-        lastSelectedSlot = McIf.player().inventory.currentItem;
         List<Boolean> remainderToCast = spell.subList(spellInProgress.size(), spell.size());
         remainderToCast.stream().map(QuickCastManager::getPacket).forEach(spellPacketQueue::add);
+        delayedSpells.subList(0, 3).clear();
     }
 
     @SubscribeEvent
@@ -101,6 +107,7 @@ public class QuickCastManager implements Listener {
         // Clear spell after the 40 tick timeout period
         if (spellResetCountdown > 0 && --spellResetCountdown <= 0) {
             spellInProgress.clear();
+            checkDelayedSpells();
         }
 
         if (spellPacketQueue.isEmpty()) return; // Nothing to cast, return
@@ -126,6 +133,7 @@ public class QuickCastManager implements Listener {
     public void onClassChange(WynnClassChangeEvent e) {
         spellPacketQueue.clear();
         spellInProgress.clear();
+        delayedSpells.clear();
     }
 
     @SubscribeEvent
@@ -144,10 +152,12 @@ public class QuickCastManager implements Listener {
 
     private static void tryUpdateSpell(String text) {
         List<Boolean> spell = getSpellFromString(text);
-        if (spell == null) return;
         if (spellInProgress.equals(spell)) return;
-        if (spell.size() == 3) {
+        if (spell == null || spell.size() == 3) {
+            if (spellInProgress.isEmpty()) return;
+            
             spellInProgress.clear();
+            checkDelayedSpells();
             spellResetCountdown = 0;
         } else {
             spellInProgress = spell;
