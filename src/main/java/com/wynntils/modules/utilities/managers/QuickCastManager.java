@@ -30,6 +30,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -54,7 +55,7 @@ public class QuickCastManager implements Listener {
 
     private static final Queue<Packet<?>> spellPacketQueue = new LinkedList<>();
     private static List<Boolean> spellInProgress = new ArrayList<>(3);
-    private static List<Boolean> delayedSpells = new ArrayList<>();
+    private static List<Integer> delayedSpells = new ArrayList<>();
     private static int lastSelectedSlot = 0;
     private static int spellResetCountdown = 0;
     private static int packetQueueCountdown = 0;
@@ -63,17 +64,20 @@ public class QuickCastManager implements Listener {
      * Queues the spell to be sent to the server.
      * true in boolean fields represents right click.
      */
-    private static void queueSpell(boolean first, boolean second, boolean third) {
+    private static void queueSpell(int spell) {
         NetHandlerPlayClient connection = McIf.mc().getConnection();
         if (connection == null) return;
+        
+        CastCheckStatus status = checkSpellCastRequest();
+        if (status != CastCheckStatus.OK) {
+            status.sendMessage();
+            return;
+        }
 
-        boolean isArcher = PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER;
+        delayedSpells.add(spell);
 
-        delayedSpells.add(isArcher != first); // Inverts booleans (r -> l, l -> r) if archer
-        delayedSpells.add(isArcher != second);
-        delayedSpells.add(isArcher != third);
-
-        if (delayedSpells.size() > 3 || !spellInProgress.isEmpty()) return;
+        // If there is currently a spell chain in progress exit
+        if (delayedSpells.size() > 1 || !spellInProgress.isEmpty()) return;
 
         checkDelayedSpells();
     }
@@ -82,22 +86,10 @@ public class QuickCastManager implements Listener {
         if (delayedSpells.isEmpty()) return;
 
         lastSelectedSlot = McIf.player().inventory.currentItem;
-        List<Boolean> spell = delayedSpells.subList(0, 3);
+        List<Boolean> spell = getSpellMouseClicks(delayedSpells.get(0));
+        delayedSpells.remove(0);
 
-
-        for (int i = 0; i < spellInProgress.size(); i++) {
-            if (spellInProgress.get(i) != spell.get(i)) {
-                McIf.player().sendMessage(new TextComponentString(
-                        TextFormatting.GRAY + "Finish your incompatible spell-cast first."
-                ));
-                delayedSpells.subList(0, 3).clear();
-                return;
-            }
-        }
-
-        List<Boolean> remainderToCast = spell.subList(spellInProgress.size(), spell.size());
-        remainderToCast.stream().map(QuickCastManager::getPacket).forEach(spellPacketQueue::add);
-        delayedSpells.subList(0, 3).clear();
+        spell.stream().map(QuickCastManager::getPacket).forEach(spellPacketQueue::add);
     }
 
     @SubscribeEvent
@@ -152,7 +144,6 @@ public class QuickCastManager implements Listener {
 
     private static void tryUpdateSpell(String text) {
         List<Boolean> spell = getSpellFromString(text);
-        if (spellInProgress.equals(spell)) return;
         if (spell == null || spell.size() == 3) {
             if (spellInProgress.isEmpty()) return;
             
@@ -204,44 +195,40 @@ public class QuickCastManager implements Listener {
         return CastCheckStatus.OK;
     }
 
+    private static List<Boolean> getSpellMouseClicks(int spell_number) {
+        boolean isArcher = PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER;
+        switch (spell_number) {
+            case 1: 
+                // Inverts booleans (r -> l, l -> r) if archer
+                return new ArrayList<> (Arrays.asList(isArcher != SPELL_RIGHT, isArcher != SPELL_LEFT, isArcher != SPELL_RIGHT));
+            case 2:
+                return new ArrayList<> (Arrays.asList(isArcher != SPELL_RIGHT, isArcher != SPELL_RIGHT, isArcher != SPELL_RIGHT));
+            case 3:
+                return new ArrayList<> (Arrays.asList(isArcher != SPELL_RIGHT, isArcher != SPELL_LEFT, isArcher != SPELL_LEFT));
+            case 4:
+                return new ArrayList<> (Arrays.asList(isArcher != SPELL_RIGHT, isArcher != SPELL_RIGHT, isArcher != SPELL_LEFT));
+        }
+        return new ArrayList<>();
+    }
+
     private static Packet<?> getPacket(boolean direction) {
         return direction ? rightClick : leftClick;
     }
 
     public static void castFirstSpell() {
-        CastCheckStatus status = checkSpellCastRequest();
-        if (status != CastCheckStatus.OK) {
-            status.sendMessage();
-            return;
-        }
-        queueSpell(SPELL_RIGHT, SPELL_LEFT, SPELL_RIGHT);
+        queueSpell(1);
     }
 
     public static void castSecondSpell() {
-        CastCheckStatus status = checkSpellCastRequest();
-        if (status != CastCheckStatus.OK) {
-            status.sendMessage();
-            return;
-        }
-        queueSpell(SPELL_RIGHT, SPELL_RIGHT, SPELL_RIGHT);
+        queueSpell(2);
     }
 
     public static void castThirdSpell() {
-        CastCheckStatus status = checkSpellCastRequest();
-        if (status != CastCheckStatus.OK) {
-            status.sendMessage();
-            return;
-        }
-        queueSpell(SPELL_RIGHT, SPELL_LEFT, SPELL_LEFT);
+        queueSpell(3);
     }
 
     public static void castFourthSpell() {
-        CastCheckStatus status = checkSpellCastRequest();
-        if (status != CastCheckStatus.OK) {
-            status.sendMessage();
-            return;
-        }
-        queueSpell(SPELL_RIGHT, SPELL_RIGHT, SPELL_LEFT);
+        queueSpell(4);
     }
 
     private enum CastCheckStatus {
