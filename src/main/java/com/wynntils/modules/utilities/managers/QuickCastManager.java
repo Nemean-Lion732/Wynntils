@@ -59,6 +59,7 @@ public class QuickCastManager implements Listener {
     private static int lastSelectedSlot = 0;
     private static int spellResetCountdown = 0;
     private static int packetQueueCountdown = 0;
+    private static int meleeAttackCountdown = 0;
 
     /**
      * Queues the spell to be sent to the server.
@@ -86,8 +87,7 @@ public class QuickCastManager implements Listener {
         if (delayedSpells.isEmpty()) return;
 
         lastSelectedSlot = McIf.player().inventory.currentItem;
-        List<Boolean> spell = getSpellMouseClicks(delayedSpells.get(0));
-        delayedSpells.remove(0);
+        List<Boolean> spell = getSpellMouseClicks(delayedSpells.remove(0));
 
         spell.stream().map(QuickCastManager::getPacket).forEach(spellPacketQueue::add);
     }
@@ -211,7 +211,7 @@ public class QuickCastManager implements Listener {
         return new ArrayList<>();
     }
 
-    private static Packet<?> getPacket(boolean direction) {
+    private static Packet<?> getPacket(Boolean direction) {
         return direction ? rightClick : leftClick;
     }
 
@@ -229,6 +229,32 @@ public class QuickCastManager implements Listener {
 
     public static void castFourthSpell() {
         queueSpell(4);
+    }
+
+    public static void doMeleeAttack() {
+        if (--meleeAttackCountdown > 0) return;
+
+        if (!spellPacketQueue.isEmpty()) return;
+
+        NetHandlerPlayClient connection = McIf.mc().getConnection();
+        if (connection == null) return;
+
+        CastCheckStatus status = checkSpellCastRequest();
+        if (status != CastCheckStatus.OK) {
+            status.sendMessage();
+            meleeAttackCountdown = QUEUE_TICK_DELAY;
+            return;
+        }
+
+        // Check the minecraft attack cooldown indicator on the weapon
+        ItemStack heldItem = McIf.player().getHeldItemMainhand();
+        if((McIf.player().getCooldownTracker().getCooldown(heldItem.getItem(), 1) > 0)) return;
+
+        if (McIf.mc().currentScreen != null) return; // Don't cast if a GUI is open
+
+        boolean isArcher = PlayerInfo.get(CharacterData.class).getCurrentClass() == ClassType.ARCHER;
+        connection.sendPacket(getPacket(SPELL_LEFT != isArcher));
+        meleeAttackCountdown = QUEUE_TICK_DELAY;
     }
 
     private enum CastCheckStatus {

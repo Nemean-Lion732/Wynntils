@@ -69,6 +69,7 @@ public class KeyManager {
         CoreModule.getModule().registerKeyBinding("Cast R-R-R Spell", Keyboard.KEY_X, "Wynntils", KeyConflictContext.IN_GAME, true, QuickCastManager::castSecondSpell);
         CoreModule.getModule().registerKeyBinding("Cast R-L-L Spell", Keyboard.KEY_C, "Wynntils", KeyConflictContext.IN_GAME, true, QuickCastManager::castThirdSpell);
         CoreModule.getModule().registerKeyBinding("Cast R-R-L Spell", Keyboard.KEY_V, "Wynntils", KeyConflictContext.IN_GAME, true, QuickCastManager::castFourthSpell);
+        CoreModule.getModule().registerKeyBinding("Auto-Attack", Keyboard.KEY_NONE, "Wynntils", KeyConflictContext.IN_GAME, false, QuickCastManager::doMeleeAttack);
 
         CoreModule.getModule().registerKeyBinding("Mount Horse", Keyboard.KEY_Y, "Wynntils", KeyConflictContext.IN_GAME, true, MountHorseManager::mountHorseAndShowMessage);
 
